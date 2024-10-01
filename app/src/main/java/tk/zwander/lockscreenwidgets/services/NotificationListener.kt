@@ -27,7 +27,7 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import net.bytebuddy.ByteBuddy
-import net.bytebuddy.android.AndroidClassLoadingStrategy
+import net.bytebuddy.dynamic.loading.ClassLoadingStrategy
 import net.bytebuddy.implementation.MethodDelegation
 import tk.zwander.common.util.Event
 import tk.zwander.common.util.EventObserver
@@ -57,18 +57,19 @@ class NotificationListener : NotificationListenerService(), EventObserver, Corou
     private val updateJob = atomic<Job?>(null)
 
     override fun onListenerConnected() {
+        logUtils.debugLog("Notification listener connected.", null)
         isListening.value = true
+        handler.post {
+            logUtils.debugLog("Sending notification update because listener was connected.", null)
+            sendUpdate()
+        }
         eventManager.addObserver(this)
-        sendUpdate()
     }
 
     override fun onListenerDisconnected() {
+        logUtils.debugLog("Notification listener disconnected.", null)
         isListening.value = false
         eventManager.removeObserver(this)
-    }
-
-    override fun onCreate() {
-        sendUpdate()
     }
 
     @SuppressLint("PrivateApi", "DiscouragedPrivateApi")
@@ -94,7 +95,7 @@ class NotificationListener : NotificationListenerService(), EventObserver, Corou
                                 .withParameters(Int::class.java, Parcel::class.java, Parcel::class.java, Int::class.java)
                                 .intercept(MethodDelegation.to(LollipopListenerWrapper(original as INotificationListener.Stub)))
                                 .make()
-                                .load(NotificationListenerService::class.java.classLoader, AndroidClassLoadingStrategy.Wrapping(cacheDir))
+                                .load(wrapperClass.classLoader, ClassLoadingStrategy.ForUnsafeInjection())
                                 .loaded
                                 .getDeclaredConstructor()
                                 .apply { isAccessible = true }
@@ -119,8 +120,11 @@ class NotificationListener : NotificationListenerService(), EventObserver, Corou
     override fun onEvent(event: Event) {
         when (event) {
             Event.RequestNotificationCount -> {
-                handler.post {
-                    sendUpdate()
+                if (isListening.value) {
+                    logUtils.debugLog("Sending notification update because update was requested.", null)
+                    handler.post {
+                        sendUpdate()
+                    }
                 }
             }
 
@@ -129,18 +133,23 @@ class NotificationListener : NotificationListenerService(), EventObserver, Corou
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
+        logUtils.debugLog("Sending notification update because notification was posted.", null)
         sendUpdate()
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        logUtils.debugLog("Sending notification update because notification was removed.", null)
         sendUpdate()
     }
 
     override fun onNotificationRankingUpdate(rankingMap: RankingMap?) {
+        logUtils.debugLog("Sending notification update because notification was updated.", null)
         sendUpdate()
     }
 
     private fun sendUpdate() {
+        logUtils.debugLog("Sending notification update.", null)
+
         updateJob.value?.cancel()
         updateJob.value = launch(Dispatchers.IO) {
             if (isListening.value) {
@@ -176,9 +185,11 @@ class NotificationListener : NotificationListenerService(), EventObserver, Corou
 
     private val StatusBarNotification.shouldCount: Boolean
         get() {
+            logUtils.debugLog("Checking if notification $this should count", null)
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 if (notification.flags and Notification.FLAG_BUBBLE != 0 &&
-                    notification.bubbleMetadata.isNotificationSuppressed
+                    notification.bubbleMetadata?.isNotificationSuppressed == true
                 ) {
                     logUtils.debugLog("Bubble and suppressed ${this.notification.channelId}", null)
                     return false
@@ -209,10 +220,14 @@ class NotificationListener : NotificationListenerService(), EventObserver, Corou
                         return false
                     }
 
-                    if (importance <= NotificationManager.IMPORTANCE_LOW &&
-                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                        nm.shouldHideSilentStatusBarIcons()
-                    ) {
+                    val shouldCheckHideSilentStatusBarIcons = importance <= NotificationManager.IMPORTANCE_LOW &&
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+
+                    if (shouldCheckHideSilentStatusBarIcons) {
+                        logUtils.debugLog("Checking shouldHideSilentStatusBarIcons with context package name $opPackageName", null)
+                    }
+
+                    if (shouldCheckHideSilentStatusBarIcons && nm.shouldHideSilentStatusBarIcons()) {
                         logUtils.debugLog("Low importance and silent hidden ${this.notification.channelId}", null)
                         return false
                     }
@@ -224,7 +239,7 @@ class NotificationListener : NotificationListenerService(), EventObserver, Corou
                         SystemProperties.get("ro.vendor.camera.extensions.service")
                             .contains("com.google.android.apps.camera.services.extensions.service.PixelExtensions")
                     ) {
-                        logUtils.debugLog("Pixel workaround ${this.notification.channelId}", null)
+                        logUtils.debugLog("Pixel workaround on ${this.packageName} ${this.notification.channelId}", null)
                         return false
                     }
                 }
