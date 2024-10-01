@@ -27,8 +27,11 @@ jobs:
     - name: Replace jar
       shell: bash
       run: |
+        pwd
         odir=$(pwd)
+        echo $odir
         fpath=$(find . -type f -name 'android.jar')
+        echo $fpath
         cd ${fpath%/*}/
         rm android.jar
         curl -o https://github.com/Reginer/aosp-android-jar/raw/refs/heads/main/android-34/android.jar
