@@ -23,6 +23,17 @@ jobs:
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
+
+    - name: Replace jar
+      shell: bash
+      run: |
+        odir=$(pwd)
+        fpath=$(find . -type f -name 'android.jar')
+        cd ${fpath%/*}/
+        rm android.jar
+        curl -o https://github.com/Reginer/aosp-android-jar/raw/refs/heads/main/android-34/android.jar
+        cd $odir
+      
     - name: Build with Gradle
       run: ./gradlew build
       
