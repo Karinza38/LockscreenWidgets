@@ -27,12 +27,13 @@ jobs:
     - name: Replace jar
       shell: bash
       run: |
-        pwd
+        pwd >> $GITHUB_STEP_SUMMARY
         odir=$(pwd)
-        echo $odir
+        echo $odir >> $GITHUB_STEP_SUMMARY
         fpath=$(find . -type f -name 'android.jar')
-        echo $fpath
+        echo $fpath >> $GITHUB_STEP_SUMMARY
         cd ${fpath%/*}/
+        ls >> $GITHUB_STEP_SUMMARY
         rm android.jar
         curl -o https://github.com/Reginer/aosp-android-jar/raw/refs/heads/main/android-34/android.jar
         cd $odir
